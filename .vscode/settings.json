@@ -1,0 +1,9 @@
+{
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "on",
+    "github.copilot.enable": {
+        "plaintext": "true",
+        "markdown": "true",
+        "scminput": "true"
+    }
+}
