@@ -3,7 +3,8 @@
 # I use generated data
 
 # A10 indicates that I use A * 10 to generate the data
-PREFIX = "Expsq-Xnormal"
+# FixA indicates that I fix A for all the repetitions
+PREFIX = "ExpsqFixA"
 
 import sys
 from jin_utils import get_mypkg_path
@@ -37,6 +38,7 @@ parser.add_argument('--noise_type', type=str, default="lognormal", help='noise t
 parser.add_argument('--fmodel_type', type=str, default="LIN", help='fmodel type')
 # none or diff
 parser.add_argument('--kernel_fn', type=str, default="none", help='kernel type')
+parser.add_argument('--X_type', type=str, default="normal", help='X type')
 
 args = parser.parse_args()
 
@@ -50,7 +52,7 @@ config.fmodel_type = args.fmodel_type
 config.M = None
 config.noise_std = 0.5
 config.noise_type = args.noise_type
-config.X_type = "normal"
+config.X_type = args.X_type
 config.model_type = "expsq"
 if args.kernel_fn == "none":
     config.kernel_fn = None
@@ -62,14 +64,14 @@ config.verbose = 2
 # num of repetitions
 config.nrep = 100
 
-fold_name = f"{PREFIX}_sizexy-{config.xysize[0]}x{config.xysize[1]}_noise-{num2str(config.noise_std)}_kernel-{config.kernel_fn}_fmodel-{config.fmodel_type}_noise-{config.noise_type}"
+fold_name = f"{PREFIX}_X{config.X_type}_sizexy-{config.xysize[0]}x{config.xysize[1]}_noise-{num2str(config.noise_std)}_kernel-{config.kernel_fn}_fmodel-{config.fmodel_type}_noise-{config.noise_type}"
 #fold_name = f"{PREFIX}_sizexy-{config.xysize[0]}x{config.xysize[1]}_noise-{num2str(config.noise_std)}"
 config.res_root = RES_ROOT/fold_name
 
+np.random.seed(423)
+A = npr.randn(*config.xysize).T;
 # load data to get eps 
-
-def _gen_data(ntrain, config, seed):
-    A = npr.randn(*config.xysize).T;
+def _gen_data(A, ntrain, config, seed):
     datagen = MyDataGen(xysize=config.xysize, 
                         A=A, 
                         model_type=config.model_type,
@@ -96,7 +98,7 @@ def _get_model(typ="SVR"):
     
 def _run_fn(seed, ntrain, hfct):
     # generate data
-    Xtrain, Ytrain, Xtest, Ytest = _gen_data(ntrain, config, seed)
+    Xtrain, Ytrain, Xtest, Ytest = _gen_data(A, ntrain, config, seed)
     res = edict()
 
     # non-split data
