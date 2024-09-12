@@ -3,10 +3,12 @@
 # I use generated data
 
 # A10 indicates that I use A * 10 to generate the data
-PREFIX = "Summary"
+PREFIX = "Expsq-Xnormal"
 
 import sys
-sys.path.append("../mypkg")
+from jin_utils import get_mypkg_path
+pkgpath = get_mypkg_path()
+sys.path.append(pkgpath)
 from constants import RES_ROOT, DATA_ROOT
 
 from easydict import EasyDict as edict
@@ -39,16 +41,17 @@ parser.add_argument('--kernel_fn', type=str, default="none", help='kernel type')
 args = parser.parse_args()
 
 config = edict()
-config.alpha = 0.20
+config.alpha = 0.10
 config.ntrain = args.ntrain
-config.xysize = (20, 2)
+config.xysize = (10, 5)
 config.can_hfcts = np.logspace(-4, 4, 15)
 config.split_ratio = 0.5
 config.fmodel_type = args.fmodel_type
 config.M = None
-config.noise_std = 1
+config.noise_std = 0.5
 config.noise_type = args.noise_type
 config.X_type = "normal"
+config.model_type = "expsq"
 if args.kernel_fn == "none":
     config.kernel_fn = None
 else: 
@@ -69,6 +72,7 @@ def _gen_data(ntrain, config, seed):
     A = npr.randn(*config.xysize).T;
     datagen = MyDataGen(xysize=config.xysize, 
                         A=A, 
+                        model_type=config.model_type,
                         X_type=config.X_type, 
                         noise_type=config.noise_type, 
                         noise_std=config.noise_std)
@@ -82,7 +86,7 @@ def _get_model(typ="SVR"):
     if typ == "SVR":
         model =  SVR(kernel="rbf")
     elif typ == "MLP":
-        model = MLPRegressor(hidden_layer_sizes=(100,), max_iter=1000)
+        model = MLPRegressor(hidden_layer_sizes=(1000,), max_iter=1000, alpha=2)
     elif typ == "LIN": 
         model = LinearRegression()
     
@@ -91,17 +95,20 @@ def _get_model(typ="SVR"):
     return model
     
 def _run_fn(seed, ntrain, hfct):
+    # generate data
     Xtrain, Ytrain, Xtest, Ytest = _gen_data(ntrain, config, seed)
+    res = edict()
+
+    # non-split data
+    ## fit fmodel
     fmodel = _get_model(typ=config.fmodel_type)
     fmodel.fit(Xtrain, Ytrain); 
-
     cur_ys_train, cur_fs_train = Ytrain, fmodel.predict(Xtrain)
     cur_ys_test, cur_fs_test = Ytest, fmodel.predict(Xtest)
 
-    res = edict()
-
-    # my method
-    cpfit = CPSimple1(cur_ys_train, cur_fs_train,
+    ## my method
+    cpfit = CPSimple1(
+        cur_ys_train, cur_fs_train,
                      kernel_fn=config.kernel_fn, 
                      M=config.M,
                      verbose=config.verbose)
@@ -110,8 +117,7 @@ def _run_fn(seed, ntrain, hfct):
                           verbose=config.verbose)
     cpfit_naive.fit(alpha=config.alpha)
 
-    # naive conformal prediction 
-    # non-split data
+    ## naive conformal prediction 
     _, in_sets = cpfit_naive.predict(cur_fs_test, cur_ys_test)
     res["naive-nospl"] = {"eps": cpfit_naive.eps, "in_sets": in_sets.mean()}
 
@@ -120,26 +126,36 @@ def _run_fn(seed, ntrain, hfct):
     _, in_sets = cpfit.predict(cur_fs_test, cur_ys_test);
     res["wvar"] = {"eps": cpfit.eps, "in_sets": in_sets.mean()}
 
-    # naive conformal prediction
     # split data 
     tr_idxs = np.sort(npr.choice(ntrain, int(ntrain*config.split_ratio), replace=False))
     Xtrain1, Ytrain1 = Xtrain[tr_idxs], Ytrain[tr_idxs]
     Xtrain2, Ytrain2 = np.delete(Xtrain, tr_idxs, axis=0), np.delete(Ytrain, tr_idxs, axis=0)
+    ## fit fmodel
     fmodel1 = _get_model(typ=config.fmodel_type)
     fmodel1.fit(Xtrain1, Ytrain1); 
     cur_ys_train2, cur_fs_train2 = Ytrain2, fmodel1.predict(Xtrain2)
     cur_ys_test_naive, cur_fs_test_naive = Ytest, fmodel1.predict(Xtest)
 
-    cpfit_naive = CPNaive(cur_ys_train2, cur_fs_train2, 
+    cpfit2 = CPSimple1(
+        cur_ys_train2, cur_fs_train2,
+                     kernel_fn=config.kernel_fn, 
+                     M=config.M,
+                     verbose=config.verbose)
+    ## naive conformal prediction
+    cpfit2_naive = CPNaive(cur_ys_train2, cur_fs_train2, 
                           M=config.M,
                           verbose=config.verbose)
-    cpfit_naive.fit(alpha=config.alpha)
-    _, in_sets = cpfit_naive.predict(cur_fs_test_naive, cur_ys_test_naive)
-    res["naive"] = {"eps": cpfit_naive.eps, "in_sets": in_sets.mean()}
+    cpfit2_naive.fit(alpha=config.alpha)
+    _, in_sets = cpfit2_naive.predict(cur_fs_test_naive, cur_ys_test_naive)
+    res["naive"] = {"eps": cpfit2_naive.eps, "in_sets": in_sets.mean()}
 
+    h2 = CPSimple1.get_base_h(hfct, cpfit2, eps_naive=cpfit2_naive.eps, alpha=config.alpha)
+    cpfit2.fit(alpha=config.alpha, h=h2, opt_params={"bds": (0.01, 1000)})
+    _, in_sets = cpfit2.predict(cur_fs_test, cur_ys_test);
+    res["wvar-spl"] = {"eps": cpfit2.eps, "in_sets": in_sets.mean()}
 
     res["info"] = {"seed": seed, "hfct": hfct, "h": h, "ntrain": ntrain}
-    del cpfit
+    del cpfit, cpfit2
     return res
 
 

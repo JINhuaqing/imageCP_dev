@@ -120,6 +120,36 @@ class CPSimple1(CPBase):
 
         return rv
 
+    # * test only
+    def _phi_fn_diff1(self, eps, alpha, h=1):
+        """ The influence function based on the difference 
+        In original version, we use a kernel to approximate the indicator function
+        Here, we use the difference between I(Rs <= eps)  and I(Rs<= eps + h)
+        - args: 
+            - eps (float): the critical value 
+            - alpha (float): the signicalt level
+            - h (float): different between the critical value
+        - return: 
+            - rv (np.ndarray): n vector containing phis
+        """
+
+        ind0 = (self.Rs <= eps).astype(float)
+        ind1 = (self.Rs <= (eps+h)).astype(float)
+        shape = tuple([len(self.ys)] + [1]*(self.ys.ndim-1))
+        # make it compatible to the shape of Delta
+        ind0 = ind0.reshape(shape) 
+        ind1 = ind1.reshape(shape) 
+        exp20 =  (ind0* self.Delta).mean(axis=0) # *
+        exp21 =  (ind1* self.Delta).mean(axis=0) # *
+        exp2 = (exp21 - exp20)/h
+
+        p12 = self.p12_quantity * exp2[None] # n x *
+        p1 = p12.sum(axis=tuple(range(1, p12.ndim)))/eps # n
+        p2 =  (self.Rs <= eps).astype(float)- 1 +  alpha 
+        rv = p1 + p2
+
+        return rv.mean(), p1.mean(), p2.mean()
+
     def _phi_fn_diff(self, eps, alpha, h=1):
         """ The influence function based on the difference 
         In original version, we use a kernel to approximate the indicator function

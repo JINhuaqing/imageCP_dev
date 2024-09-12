@@ -20,6 +20,7 @@ class MyDataGen():
     def __init__(self, 
                  xysize, 
                  A, 
+                 model_type='linear',
                  X_type='normal',
                  noise_type='normal',
                  noise_std=1,
@@ -29,6 +30,7 @@ class MyDataGen():
         args: 
             - xysize (tuple): size of the data, e.g., (100, 100)
             - A (np.array): matrix, sizey x sizex
+            - model_type (str): type of the model, 'linear' or 'sin' or 'log'
             - X_type (str): type of the data, 'normal' or 'binary'
             - noise_type (str): type of the noise, 'normal' or 'uniform' or "t"
             - noise_std (float): standard deviation of the noise
@@ -38,6 +40,7 @@ class MyDataGen():
         self.verbose = verbose
         self.xysize = xysize
         self.A = A 
+        self.model_type = model_type.lower()
         self.X_type = X_type.lower()
         self.noise_type = noise_type.lower()
         self.noise_std = noise_std
@@ -64,15 +67,48 @@ class MyDataGen():
         return X
 
     @staticmethod
-    def gen_YcX(X, A, noise_std, noise_type='normal'):
-        """generate Y = AX + noise
+    def sin_YrawcX(X, A):
+        """ 
+        Generate Y = sin(2pi|AX|)
+        """
+        tX = np.abs(X @ A.T) * 2 * np.pi
+        Yraw = 2*np.sin(tX)
+        return Yraw
+
+    @staticmethod
+    def log_YrawcX(X, A):
+        """ 
+        Generate Y = log(1+|AX|)
+        """
+        tX = np.abs(X @ A.T)
+        Yraw = np.log(1+tX)
+        return Yraw
+
+    @staticmethod
+    def expsq_YrawcX(X, A):
+        """ 
+        Generate Y = exp(-|AX|^2)
+        """
+        tX = np.abs(X @ A.T)
+        Yraw = 2*np.exp(-tX**2)
+        return Yraw
+
+    @staticmethod 
+    def lin_YrawcX(X, A):
+        """ 
+        Generate Y = AX
+        """
+        Yraw = X @ A.T
+        return Yraw
+
+    @staticmethod
+    def gen_YcYraw(Yraw, noise_std, noise_type='normal'):
+        """generate Y = Yraw + noise
         args: 
-            - X (np.array): data, n x sizex
-            - A (np.array): matrix, sizey x sizex
+            - Yraw (np.array): raw data of Y, n x sizey
             - noise_std (float): standard deviation of the noise
             - noise_type (str): type of the noise, 'normal' or 'uniform' or "t"
         """
-        Yraw = X @ A.T
         if noise_type == 'normal':
             noise = npr.randn(*Yraw.shape)
         elif noise_type == 'uniform':
@@ -84,7 +120,7 @@ class MyDataGen():
             noise = npr.standard_t(3, size=Yraw.shape)
         noise = noise / np.std(noise, axis=0)[None] * noise_std
         Y = Yraw + noise
-        return Y, noise
+        return Y
 
     
     def __call__(self, n, seed=None):
@@ -98,8 +134,17 @@ class MyDataGen():
             X = self.gen_normalX(n, self.xysize[0])
         else:
             X = self.gen_binaryX(n, self.xysize[0])
-        Y, noise = self.gen_YcX(X, 
-                         self.A, 
+
+        if self.model_type.startswith("sin"):
+            Yraw = self.sin_YrawcX(X, self.A)
+        elif self.model_type.startswith("log"):
+            Yraw = self.log_YrawcX(X, self.A)
+        elif self.model_type.startswith("expsq"):
+            Yraw = self.expsq_YrawcX(X, self.A)
+        else:
+            Yraw = self.lin_YrawcX(X, self.A)
+        Y = self.gen_YcYraw(
+                         Yraw,
                          noise_std=self.noise_std, 
                          noise_type=self.noise_type)
         if Y.shape[1] == 1:

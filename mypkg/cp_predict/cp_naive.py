@@ -25,7 +25,6 @@ class CPNaive(CPBase):
         - args: 
             - ys (np.array): n x * array of y, the truth 
             - fs (np.array): n x * array of f(x), i.e., Ey|x
-            - kernel_fn (function): the kernel function
             - verbose (int): the verbosity level, the larger the more verbose
         """
         _set_verbose_level(verbose, logger)

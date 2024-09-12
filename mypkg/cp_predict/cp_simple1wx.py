@@ -8,6 +8,7 @@ from easydict import EasyDict as edict
 from scipy.optimize import minimize, brentq
 from .cp_base import CPBase
 import pdb
+import time
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ class CPSimple1wx(CPBase):
             - fs (np.array): n x * array of f(x), i.e., Ey|x
             - xs (np.array): n x * array of x
             - kernel_fn (function): the kernel function
+                if "diff", it will use the difference between the indicator function
+                if None, it will use the Gaussian kernel
             - verbose (int): the verbosity level, the larger the more verbose
         """
         _set_verbose_level(verbose, logger)
@@ -272,7 +275,7 @@ class CPSimple1wx(CPBase):
         all_fils = list(data_path.glob("fil*.pkl"))
         # filter the files based on the data type
         if data_type != "ALL":
-            all_fils = [fil for fil in all_fils if CPSimple1._sort_key(fil)[0][2:]==data_type]
+            all_fils = [fil for fil in all_fils if CPSimple1wx._sort_key(fil)[0][2:]==data_type]
         ys = []
         fs = []
         if verbose: 
@@ -311,7 +314,7 @@ class CPSimple1wx(CPBase):
         fname = f"yfs_{data_type}_{size_name}.pkl"
         fpath = data_path/fname
         if not fpath.exists():
-            ys, fs = CPSimple1._prepare_data(data_path, size, data_type, verbose=verbose)
+            ys, fs = CPSimple1wx._prepare_data(data_path, size, data_type, verbose=verbose)
             save_pkl(fpath, (ys, fs), verbose=verbose)
         else: 
             ys, fs = load_pkl(fpath, verbose=verbose)
