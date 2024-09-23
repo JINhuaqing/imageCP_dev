@@ -44,12 +44,4 @@ class CPNaive(CPBase):
         - args:
             - alpha (float): the significance level
         """
-        ncal = len(self.Rs)
-        empcov = (1 - alpha) * (1 + 1/ncal)
-        # i.e., ncal > (1/alpha-1):
-        if empcov > 1: 
-            eps = np.max(self.Rs)
-            logger.warning(f"ncal is too small to adjust the empirical coverage rate to be 1-alpha, so we use the max Rs as the critical value.")
-        else: 
-            eps = np.quantile(self.Rs, empcov)
-        self.eps = eps
+        self.eps = self._fit_naive(alpha=alpha)

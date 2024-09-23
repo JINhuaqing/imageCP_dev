@@ -1,14 +1,14 @@
 # this file contains the class to conduct simple conformal prediction 
-# compare with cp_simple.py, here I remove the [jin2024(annot. at p. 4)](zotero://open-pdf/library/items/FDXAWJA3?page=4&annotation=N8WXEFQ3) in the phi_fn
-# i.e.,I assume M(x) is free of theta
+# compare with cp_simple1.py,  I add x as input, because I need the expection is conditional on x
 import numpy as np
 from utils.misc import load_pkl, save_pkl, _set_verbose_level, _update_params
 from pathlib import Path
 from tqdm import tqdm
 from easydict import EasyDict as edict
 from scipy.optimize import minimize, brentq
-from .cp_base import CPBase
+from ..cp_base import CPBase
 import pdb
+import time
 
 import logging
 logger = logging.getLogger(__name__)
@@ -21,13 +21,16 @@ if not logger.hasHandlers():
     logger.addHandler(ch) 
 
 
-class CPSimple1(CPBase):
-    def __init__(self, ys, fs, kernel_fn=None, M=None, verbose=1):
+class CPSimple1wx(CPBase):
+    def __init__(self, ys, fs, xs, kernel_fn=None, M=None, verbose=1):
         """ 
         - args: 
             - ys (np.array): n x * array of y, the truth 
             - fs (np.array): n x * array of f(x), i.e., Ey|x
+            - xs (np.array): n x * array of x
             - kernel_fn (function): the kernel function
+                if "diff", it will use the difference between the indicator function
+                if None, it will use the Gaussian kernel
             - verbose (int): the verbosity level, the larger the more verbose
         """
         _set_verbose_level(verbose, logger)
@@ -46,6 +49,7 @@ class CPSimple1(CPBase):
 
         self.ys = ys
         self.fs = fs
+        self.xs = xs
 
         # self.eps relies on the self.h
         self.h = None
@@ -61,9 +65,27 @@ class CPSimple1(CPBase):
         self.p12_quantity = (1/self.M) * self.Delta
 
          
- 
+    @staticmethod
+    def condexp_x(kvs, Delta, xs):
+        """Calculate the conditional expectation of Delta given x with kernel weights
+        args: 
+            - kvs (np.ndarray): n x n array of kernel weights
+            - Delta (np.ndarray): n x * array of Delta
+            - xs (np.ndarray): n x * array of x
+        """
+        p = xs.shape[1]
+        vs = 2**np.arange(p)
+        xvs = xs @ vs # n, a vector of the x values, each value is a unique value
+        kvsdelta = kvs * Delta # n x *
 
-    # NOTE For test only
+        # the return value
+        rv = np.zeros((xs.shape[0], Delta.shape[1]))
+        uni_xvs = np.sort(np.unique(xvs))
+        for uni_xv in uni_xvs:
+            cv = kvsdelta[xvs==uni_xv].mean(axis=0)
+            rv[xvs==uni_xv] = cv
+        return rv
+
     def _phi_fn1(self, eps, alpha, h=1):
         """ The influence function
         - args: 
@@ -74,23 +96,19 @@ class CPSimple1(CPBase):
             - rv (np.ndarray): n vector containing phis
         """
 
-        kernel_vs = self.kernel_fn(self.Rs-eps, h=h)
+        kernel_vs = self.kernel_fn(self.Rs-eps, h-h)
         shape = tuple([len(self.ys)] + [1]*(self.ys.ndim-1))
         # make it compatible to the shape of Delta
         kernel_vs = kernel_vs.reshape(shape) 
-        exp2 =  (kernel_vs * self.Delta).mean(axis=0) # *
-        # exp3 is in denominator, do not need it  when fit phi(x) = 0
-        # small_v = 1e-10
-        #exp3 =  kernel_vs.reshape(-1).mean() + small_v # 1, to avoid division by zero
+        exp2 =  self.condexp_x(kernel_vs, self.Delta, self.xs) # n x * 
 
-        p12 = self.p12_quantity * exp2[None] # n x *
+        p12 = self.p12_quantity * exp2 # n x *
         p1 = p12.sum(axis=tuple(range(1, p12.ndim)))/eps # n
-        # correct the sign of p2 (on Jul 24, 2024)
         p2 =  (self.Rs <= eps).astype(float)- 1 +  alpha 
         rv = p1 + p2
-        #rv = (p1 + p2)/exp3
-        return rv.mean(), p1.mean(), p2.mean()
 
+        return rv.mean(), p1.mean(), p2.mean()
+ 
 
     def _phi_fn(self, eps, alpha, h=1):
         """ The influence function
@@ -106,21 +124,16 @@ class CPSimple1(CPBase):
         shape = tuple([len(self.ys)] + [1]*(self.ys.ndim-1))
         # make it compatible to the shape of Delta
         kernel_vs = kernel_vs.reshape(shape) 
-        exp2 =  (kernel_vs * self.Delta).mean(axis=0) # *
-        # exp3 is in denominator, do not need it  when fit phi(x) = 0
-        # small_v = 1e-10
-        #exp3 =  kernel_vs.reshape(-1).mean() + small_v # 1, to avoid division by zero
+        exp2 =  self.condexp_x(kernel_vs, self.Delta, self.xs) # n x * 
 
-        p12 = self.p12_quantity * exp2[None] # n x *
+        p12 = self.p12_quantity * exp2 # n x *
         p1 = p12.sum(axis=tuple(range(1, p12.ndim)))/eps # n
-        # correct the sign of p2 (on Jul 24, 2024)
         p2 =  (self.Rs <= eps).astype(float)- 1 +  alpha 
         rv = p1 + p2
-        #rv = (p1 + p2)/exp3
 
         return rv
 
-    # * test only
+
     def _phi_fn_diff1(self, eps, alpha, h=1):
         """ The influence function based on the difference 
         In original version, we use a kernel to approximate the indicator function
@@ -139,11 +152,12 @@ class CPSimple1(CPBase):
         # make it compatible to the shape of Delta
         ind0 = ind0.reshape(shape) 
         ind1 = ind1.reshape(shape) 
-        exp20 =  (ind0* self.Delta).mean(axis=0) # *
-        exp21 =  (ind1* self.Delta).mean(axis=0) # *
+
+        exp20 =  self.condexp_x(ind0, self.Delta, self.xs) # n x * 
+        exp21 =  self.condexp_x(ind1, self.Delta, self.xs) # n x * 
         exp2 = (exp21 - exp20)/h
 
-        p12 = self.p12_quantity * exp2[None] # n x *
+        p12 = self.p12_quantity * exp2 # n x *
         p1 = p12.sum(axis=tuple(range(1, p12.ndim)))/eps # n
         p2 =  (self.Rs <= eps).astype(float)- 1 +  alpha 
         rv = p1 + p2
@@ -168,11 +182,12 @@ class CPSimple1(CPBase):
         # make it compatible to the shape of Delta
         ind0 = ind0.reshape(shape) 
         ind1 = ind1.reshape(shape) 
-        exp20 =  (ind0* self.Delta).mean(axis=0) # *
-        exp21 =  (ind1* self.Delta).mean(axis=0) # *
+
+        exp20 =  self.condexp_x(ind0, self.Delta, self.xs) # n x * 
+        exp21 =  self.condexp_x(ind1, self.Delta, self.xs) # n x * 
         exp2 = (exp21 - exp20)/h
 
-        p12 = self.p12_quantity * exp2[None] # n x *
+        p12 = self.p12_quantity * exp2 # n x *
         p1 = p12.sum(axis=tuple(range(1, p12.ndim)))/eps # n
         p2 =  (self.Rs <= eps).astype(float)- 1 +  alpha 
         rv = p1 + p2
@@ -260,7 +275,7 @@ class CPSimple1(CPBase):
         all_fils = list(data_path.glob("fil*.pkl"))
         # filter the files based on the data type
         if data_type != "ALL":
-            all_fils = [fil for fil in all_fils if CPSimple1._sort_key(fil)[0][2:]==data_type]
+            all_fils = [fil for fil in all_fils if CPSimple1wx._sort_key(fil)[0][2:]==data_type]
         ys = []
         fs = []
         if verbose: 
@@ -299,7 +314,7 @@ class CPSimple1(CPBase):
         fname = f"yfs_{data_type}_{size_name}.pkl"
         fpath = data_path/fname
         if not fpath.exists():
-            ys, fs = CPSimple1._prepare_data(data_path, size, data_type, verbose=verbose)
+            ys, fs = CPSimple1wx._prepare_data(data_path, size, data_type, verbose=verbose)
             save_pkl(fpath, (ys, fs), verbose=verbose)
         else: 
             ys, fs = load_pkl(fpath, verbose=verbose)

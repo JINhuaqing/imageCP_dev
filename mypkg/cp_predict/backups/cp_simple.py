@@ -6,7 +6,7 @@ from pathlib import Path
 from tqdm import tqdm
 from easydict import EasyDict as edict
 from scipy.optimize import minimize, brentq
-from .cp_base import CPBase
+from ..cp_base import CPBase
 import pdb
 
 import logging

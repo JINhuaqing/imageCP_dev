@@ -1,6 +1,6 @@
 # basic simulation to explore 
 # Here I try to evaluate the var of eps and the in-set rate 
-# I use generated data
+# I tune h with bootstrap
 
 # A10 indicates that I use A * 10 to generate the data
 # FixA indicates that I fix A for all the repetitions
@@ -16,7 +16,7 @@ from easydict import EasyDict as edict
 import numpy as np
 import numpy.random as npr
 from tqdm import tqdm
-from cp_predict import CPNaive, CPSimple1
+from cp_predict import CPNaive, CPSemi, CPSemiTuneh
 from utils.misc import save_pkl, num2str
 from joblib import Parallel, delayed
 from data_gen import MyDataGen
@@ -45,15 +45,16 @@ args = parser.parse_args()
 config = edict()
 config.alpha = 0.10
 config.ntrain = args.ntrain
-config.xysize = (50, 5)
+config.xysize = (10, 5)
 config.can_hfcts = np.logspace(-4, 4, 15)
 config.split_ratio = 0.5
 config.fmodel_type = args.fmodel_type
+config.opt_params={"bds": (0.01, 1000)}
 config.M = None
 config.noise_std = 0.5
 config.noise_type = args.noise_type
 config.X_type = args.X_type
-config.model_type = "linear"
+config.model_type = "expsq"
 if args.kernel_fn == "none":
     config.kernel_fn = None
 else: 
@@ -96,7 +97,7 @@ def _get_model(typ="SVR"):
         model = MultiOutputRegressor(model)
     return model
     
-def _run_fn(seed, ntrain, hfct):
+def _run_fn(seed, ntrain):
     # generate data
     Xtrain, Ytrain, Xtest, Ytest = _gen_data(A, ntrain, config, seed)
     res = edict()
@@ -109,7 +110,7 @@ def _run_fn(seed, ntrain, hfct):
     cur_ys_test, cur_fs_test = Ytest, fmodel.predict(Xtest)
 
     ## my method
-    cpfit = CPSimple1(
+    cpfit = CPSemi(
         cur_ys_train, cur_fs_train,
                      kernel_fn=config.kernel_fn, 
                      M=config.M,
@@ -123,8 +124,17 @@ def _run_fn(seed, ntrain, hfct):
     _, in_sets = cpfit_naive.predict(cur_fs_test, cur_ys_test)
     res["naive-nospl"] = {"eps": cpfit_naive.eps, "in_sets": in_sets.mean()}
 
-    h = CPSimple1.get_base_h(hfct, cpfit, eps_naive=cpfit_naive.eps, alpha=config.alpha)
-    cpfit.fit(alpha=config.alpha, h=h, opt_params={"bds": (0.01, 1000)})
+    cp_cv = CPSemiTuneh(ys=cur_ys_train, 
+                        fs=cur_fs_train, 
+                        hfcts=config.can_hfcts, 
+                        kernel_fn=config.kernel_fn, 
+                        M=config.M, verbose=0)
+    hfct, _ = cp_cv.Boostrap(num_rep=100, 
+                             alpha=config.alpha, 
+                             n_jobs=1, 
+                             opt_params=config.opt_params)
+    h = CPSemi.get_base_h(hfct, cpfit, eps_naive=cpfit_naive.eps, alpha=config.alpha)
+    cpfit.fit(alpha=config.alpha, h=h, opt_params=config.opt_params)
     _, in_sets = cpfit.predict(cur_fs_test, cur_ys_test);
     res["wvar"] = {"eps": cpfit.eps, "in_sets": in_sets.mean()}
 
@@ -138,7 +148,7 @@ def _run_fn(seed, ntrain, hfct):
     cur_ys_train2, cur_fs_train2 = Ytrain2, fmodel1.predict(Xtrain2)
     cur_ys_test_naive, cur_fs_test_naive = Ytest, fmodel1.predict(Xtest)
 
-    cpfit2 = CPSimple1(
+    cpfit2 = CPSemi(
         cur_ys_train2, cur_fs_train2,
                      kernel_fn=config.kernel_fn, 
                      M=config.M,
@@ -151,14 +161,27 @@ def _run_fn(seed, ntrain, hfct):
     _, in_sets = cpfit2_naive.predict(cur_fs_test_naive, cur_ys_test_naive)
     res["naive"] = {"eps": cpfit2_naive.eps, "in_sets": in_sets.mean()}
 
-    h2 = CPSimple1.get_base_h(hfct, cpfit2, eps_naive=cpfit2_naive.eps, alpha=config.alpha)
-    cpfit2.fit(alpha=config.alpha, h=h2, opt_params={"bds": (0.01, 1000)})
+    cp_cv2 = CPSemiTuneh(ys=cur_ys_train2, 
+                        fs=cur_fs_train2, 
+                        hfcts=config.can_hfcts, 
+                        kernel_fn=config.kernel_fn, 
+                        M=config.M, verbose=0)
+    hfct2, _ = cp_cv2.Boostrap(num_rep=100, 
+                             alpha=config.alpha, 
+                             n_jobs=1, 
+                             opt_params=config.opt_params)
+    h2 = CPSemi.get_base_h(hfct2, cpfit2, eps_naive=cpfit2_naive.eps, alpha=config.alpha)
+    cpfit2.fit(alpha=config.alpha, h=h2, opt_params=config.opt_params)
     _, in_sets = cpfit2.predict(cur_fs_test, cur_ys_test);
     res["wvar-spl"] = {"eps": cpfit2.eps, "in_sets": in_sets.mean()}
 
-    res["info"] = {"seed": seed, "hfct": hfct, "h": h, "ntrain": ntrain}
+    res["info"] = {"seed": seed, 
+                   "hfct": hfct, "h": h, 
+                   "hfct2": hfct2, "h2": h2, 
+                   "ntrain": ntrain}
     del cpfit, cpfit2
     return res
+
 
 
 n_jobs = args.n_jobs
@@ -175,11 +198,10 @@ if not config.res_root.exists():
     config.res_root.mkdir(parents=True, exist_ok=True)
 
 save_pkl(config.res_root/"basic_config.pkl", config, is_force=True)
-for hfct in tqdm(can_hfcts, desc="h"):
-    for ntrain in tqdm(ntrains, desc="size"):
-        file_root = config.res_root/f"size-{num2str(ntrain)}_hfct-{num2str(hfct)}.pkl"
-        if file_root.exists():
-            continue
-        with Parallel(n_jobs=n_jobs) as parallel:
-            ress = parallel(delayed(_run_fn)(seed, ntrain, hfct) for seed in range(config.nrep))
-        save_pkl(file_root, ress)
+for ntrain in tqdm(ntrains, desc="size"):
+    file_root = config.res_root/f"size-{num2str(ntrain)}.pkl"
+    if file_root.exists():
+        continue
+    with Parallel(n_jobs=n_jobs) as parallel:
+        ress = parallel(delayed(_run_fn)(seed, ntrain) for seed in range(config.nrep))
+    save_pkl(file_root, ress)
