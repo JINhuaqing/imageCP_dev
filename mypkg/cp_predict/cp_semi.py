@@ -206,13 +206,12 @@ class CPSemi(CPBase):
             - opt_params (dict): the optimization parameters
         - return: 
         """
+        # I remove bds, since I can use cp_naive to get a pretty good initial value
         opt_params_def = edict({
-            "bds": [1e-10, 1000],
+            #"bds": [1e-10, 1000],
         })
 
         opt_params = _update_params(opt_params, opt_params_def, logger=logger)
-        if opt_params.bds[0] is None:
-            opt_params.bds[0] = 1e-10
         def _obj(eps):
             if self.kernel_fn == "diff":
                 vs = self._phi_fn_diff(eps, alpha, h)
@@ -220,7 +219,10 @@ class CPSemi(CPBase):
                 vs = self._phi_fn(eps, alpha, h)
             return vs.mean()
 
-        can_vs = np.logspace(np.log10(opt_params.bds[0]), np.log10(opt_params.bds[1]), 50)
+        naive_eps = self._fit_naive(alpha=alpha)
+        bds = [naive_eps/2, naive_eps*2]
+        can_vs = np.linspace(bds[0], bds[1], 5)
+        #can_vs = np.logspace(np.log10(bds[0]), np.log10(bds[1]), 50)
         can_fs = np.array([_obj(can_v) for can_v in can_vs])
         signdiff = np.diff(np.sign(can_fs))
         idxs = np.where(signdiff!=0)[0]

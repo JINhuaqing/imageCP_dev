@@ -67,12 +67,21 @@ class MyDataGen():
         return X
 
     @staticmethod
-    def sin_YrawcX(X, A):
+    def _sin_YrawcX(X, A):
         """ 
         Generate Y = sin(2pi|AX|)
         """
         tX = np.abs(X @ A.T) * 2 * np.pi
         Yraw = 2*np.sin(tX)
+        return Yraw
+
+    @staticmethod
+    def sin_YrawcX(X, A):
+        """ 
+        Generate Y = A sin(2pi|X|)
+        """
+        sinX = np.sin(np.abs(X) * 2 * np.pi)
+        Yraw = sinX @ A.T
         return Yraw
 
     @staticmethod
@@ -85,12 +94,21 @@ class MyDataGen():
         return Yraw
 
     @staticmethod
-    def expsq_YrawcX(X, A):
+    def _expsq_YrawcX(X, A):
         """ 
         Generate Y = exp(-|AX|^2)
         """
         tX = np.abs(X @ A.T)
         Yraw = 2*np.exp(-tX**2)
+        return Yraw
+
+    @staticmethod
+    def expsq_YrawcX(X, A):
+        """ 
+        Generate Y =A exp(-|X|^2) 
+        """
+        expX = np.exp(-X**2)
+        Yraw = expX @ A.T
         return Yraw
 
     @staticmethod 

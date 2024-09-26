@@ -24,6 +24,6 @@ module load SCS/anaconda/anaconda3
 conda activate imageCP
 #python -u ../python_scripts/simu_gen1wx.py --n_jobs 30
 
-python -u ../python_scripts/simu_gen1tuneh.py --n_jobs 30 --noise_type $1 --fmodel_type $2 --kernel_fn $3 --X_type $4
+python -u ../python_scripts/simu_gen1tuneh_wsp.py --n_jobs 30 --noise_type $1 --fmodel_type $2 --kernel_fn $3 --X_type $4
 #python -u ../python_scripts/simu_gen1.py --n_jobs 30 --noise_type $1 --fmodel_type $2 --kernel_fn $3 --X_type $4
 #python -u ../python_scripts/simu_gen1wx.py --n_jobs 30 --noise_type $noise_type --fmodel_type $fmodel_type --kernel_fn $kernel_fn
