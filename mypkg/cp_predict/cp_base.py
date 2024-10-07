@@ -71,7 +71,7 @@ class CPBase():
             - Rs_test (np.array): n array of the non-conformity score
             - in_sets (np.array): n boolean array, whether the fs_test are in the set or not
         """
-        fs_test, ys_test = CPBase.preprocess(fs_test, ys_test)
+        fs_test, ys_test = __class__.preprocess(fs_test, ys_test)
         assert self.eps is not None, "Please fit the model first"
         Delta_test = ys_test - fs_test
         Rs_test = self.R_fn(Delta_test, self.M)

@@ -106,6 +106,14 @@ def _run_fn(seed, ntrain, hfct):
     # non-split data
     ## fit fmodel
     fmodel = _get_model(typ=config.fmodel_type)
+    # add spline transformation
+    #def sin_cos_transform(X):
+    #    return np.hstack([np.sin(2*np.pi*X), np.cos(2*np.pi*X)])
+    #if config.model_type == "sin":
+    #    trans = FunctionTransformer(sin_cos_transform, validate=True)
+    #else:
+    #    trans = SplineTransformer(degree=3, n_knots=4, include_bias=True)
+    #fmodel = make_pipeline(trans, fmodel);
     fmodel.fit(Xtrain, Ytrain); 
     cur_ys_train, cur_fs_train = Ytrain, fmodel.predict(Xtrain)
     cur_ys_test, cur_fs_test = Ytest, fmodel.predict(Xtest)
@@ -132,36 +140,39 @@ def _run_fn(seed, ntrain, hfct):
 
     # split data 
     tr_idxs = np.sort(npr.choice(ntrain, int(ntrain*config.split_ratio), replace=False))
-    Xtrain_spl1, Ytrain_spl1 = Xtrain[tr_idxs], Ytrain[tr_idxs]
-    Xtrain_spl2, Ytrain_spl2 = np.delete(Xtrain, tr_idxs, axis=0), np.delete(Ytrain, tr_idxs, axis=0)
+    Xtrain1, Ytrain1 = Xtrain[tr_idxs], Ytrain[tr_idxs]
+    Xtrain2, Ytrain2 = np.delete(Xtrain, tr_idxs, axis=0), np.delete(Ytrain, tr_idxs, axis=0)
     ## fit fmodel
-    fmodel_spl = _get_model(typ=config.fmodel_type)
-    fmodel_spl.fit(Xtrain_spl1, Ytrain_spl1); 
-    cur_ys_train_spl, cur_fs_train_spl = Ytrain_spl2, fmodel_spl.predict(Xtrain_spl2)
-    cur_ys_test_spl, cur_fs_test_spl = Ytest, fmodel_spl.predict(Xtest)
+    fmodel1 = _get_model(typ=config.fmodel_type)
+    fmodel1.fit(Xtrain1, Ytrain1); 
+    cur_ys_train2, cur_fs_train2 = Ytrain2, fmodel1.predict(Xtrain2)
+    cur_ys_test_naive, cur_fs_test_naive = Ytest, fmodel1.predict(Xtest)
 
     cpfit2 = CPSemi(
-        cur_ys_train_spl, cur_fs_train_spl,
+        cur_ys_train2, cur_fs_train2,
                      kernel_fn=config.kernel_fn, 
                      M=config.M,
                      verbose=config.verbose)
     ## naive conformal prediction
-    cpfit2_naive = CPNaive(cur_ys_train_spl, cur_fs_train_spl, 
+    cpfit2_naive = CPNaive(cur_ys_train2, cur_fs_train2, 
                           M=config.M,
                           verbose=config.verbose)
     cpfit2_naive.fit(alpha=config.alpha)
-    _, in_sets = cpfit2_naive.predict(cur_fs_test_spl, cur_ys_test_spl)
+    _, in_sets = cpfit2_naive.predict(cur_fs_test_naive, cur_ys_test_naive)
     res["cp-spl"] = {"eps": cpfit2_naive.eps, "in_sets": in_sets.mean()}
 
     h2 = CPSemi.get_base_h(hfct, cpfit2, eps_naive=cpfit2_naive.eps, alpha=config.alpha)
     cpfit2.fit(alpha=config.alpha, h=h2, opt_params={})
-    _, in_sets = cpfit2.predict(cur_fs_test_spl, cur_ys_test_spl);
+    _, in_sets = cpfit2.predict(cur_fs_test, cur_ys_test);
     res["cpsemi-spl"] = {"eps": cpfit2.eps, "in_sets": in_sets.mean()}
 
     res["info"] = {"seed": seed, "hfct": hfct, "h": h, "ntrain": ntrain}
     del cpfit, cpfit2
     return res
 
+
+print(_run_fn(0, 100, 0.1))
+fafd
 
 n_jobs = args.n_jobs
 if args.ntrain < 0:
