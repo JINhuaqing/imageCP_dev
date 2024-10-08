@@ -14,7 +14,7 @@
 #### memory per core
 #$ -l mem_free=2G
 #### number of cores 
-#$ -pe smp 40
+#$ -pe smp 1
 #### Maximum run time 
 #$ -l h_rt=48:00:00
 #### job requires up to 2 GB local space
@@ -33,6 +33,6 @@
 module load CBI miniforge3
 conda activate imageCP
 
-python -u ../python_scripts/simu_gen1.py --n_jobs 30 --noise_type $1 --fmodel_type $2 --kernel_fn $3 --X_type $4
+echo "test"
 
 [[ -n "$JOB_ID" ]] && qstat -j "$JOB_ID"

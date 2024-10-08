@@ -4,7 +4,7 @@
 
 # A10 indicates that I use A * 10 to generate the data
 # FixA indicates that I fix A for all the repetitions
-PREFIX = "SinFixATrans"
+PREFIX = "ExpSqFixA"
 
 import sys
 from jin_utils import get_mypkg_path
@@ -55,7 +55,7 @@ config.M = None
 config.noise_std = 0.5
 config.noise_type = args.noise_type
 config.X_type = args.X_type
-config.model_type = "sin"
+config.model_type = "expsq"
 if args.kernel_fn == "none":
     config.kernel_fn = None
 else: 
