@@ -5,3 +5,4 @@ __pycache__
 tmp/
 *.pt
 logs/
+figs/*.jpg

@@ -1,11 +1,10 @@
 # basic simulation to explore 
 # Here I try to evaluate the var of eps and the in-set rate 
-# I tune h with bootstrap
-# now I change the data generation from g(AX) to A g(X) and add spline transformation before fitting the model
+# I use generated data
 
 # A10 indicates that I use A * 10 to generate the data
 # FixA indicates that I fix A for all the repetitions
-PREFIX = "NewSinFixASplineTuneh"
+PREFIX = "SinFixATrans"
 
 import sys
 from jin_utils import get_mypkg_path
@@ -17,7 +16,7 @@ from easydict import EasyDict as edict
 import numpy as np
 import numpy.random as npr
 from tqdm import tqdm
-from cp_predict import CPNaive, CPSemi, CPSemiTuneh
+from cp_predict import CPNaive, CPSemi
 from utils.misc import save_pkl, num2str
 from joblib import Parallel, delayed
 from data_gen import MyDataGen
@@ -52,12 +51,11 @@ config.xysize = (50, 5)
 config.can_hfcts = np.logspace(-4, 4, 15)
 config.split_ratio = 0.5
 config.fmodel_type = args.fmodel_type
-config.opt_params={"bds": (0.01, 1000)}
 config.M = None
 config.noise_std = 0.5
 config.noise_type = args.noise_type
 config.X_type = args.X_type
-config.model_type = "expsq"
+config.model_type = "sin"
 if args.kernel_fn == "none":
     config.kernel_fn = None
 else: 
@@ -69,6 +67,7 @@ config.verbose = 2
 config.nrep = 100
 
 fold_name = f"{PREFIX}_X{config.X_type}_sizexy-{config.xysize[0]}x{config.xysize[1]}_noise-{num2str(config.noise_std)}_kernel-{config.kernel_fn}_fmodel-{config.fmodel_type}_noise-{config.noise_type}"
+#fold_name = f"{PREFIX}_sizexy-{config.xysize[0]}x{config.xysize[1]}_noise-{num2str(config.noise_std)}"
 config.res_root = RES_ROOT/fold_name
 
 np.random.seed(423)
@@ -91,7 +90,7 @@ def _get_model(typ="SVR"):
     if typ == "SVR":
         model =  SVR(kernel="rbf")
     elif typ == "MLP":
-        model = MLPRegressor(hidden_layer_sizes=(1000,50), max_iter=1000, alpha=1)
+        model = MLPRegressor(hidden_layer_sizes=(1000,), max_iter=1000, alpha=2)
     elif typ == "LIN": 
         model = LinearRegression()
     
@@ -99,7 +98,7 @@ def _get_model(typ="SVR"):
         model = MultiOutputRegressor(model)
     return model
     
-def _run_fn(seed, ntrain):
+def _run_fn(seed, ntrain, hfct):
     # generate data
     Xtrain, Ytrain, Xtest, Ytest = _gen_data(A, ntrain, config, seed)
     res = edict()
@@ -108,14 +107,13 @@ def _run_fn(seed, ntrain):
     ## fit fmodel
     fmodel = _get_model(typ=config.fmodel_type)
     # add spline transformation
-    def sin_cos_transform(X):
-        return np.hstack([np.sin(2*np.pi*X), np.cos(2*np.pi*X)])
-    if config.model_type == "sin":
-        trans = FunctionTransformer(sin_cos_transform, validate=True)
-    else:
-        trans = SplineTransformer(degree=3, n_knots=4, include_bias=True)
-    fmodel = make_pipeline(trans, fmodel);
-
+    #def sin_cos_transform(X):
+    #    return np.hstack([np.sin(2*np.pi*X), np.cos(2*np.pi*X)])
+    #if config.model_type == "sin":
+    #    trans = FunctionTransformer(sin_cos_transform, validate=True)
+    #else:
+    #    trans = SplineTransformer(degree=3, n_knots=4, include_bias=True)
+    #fmodel = make_pipeline(trans, fmodel);
     fmodel.fit(Xtrain, Ytrain); 
     cur_ys_train, cur_fs_train = Ytrain, fmodel.predict(Xtrain)
     cur_ys_test, cur_fs_test = Ytest, fmodel.predict(Xtest)
@@ -133,21 +131,12 @@ def _run_fn(seed, ntrain):
 
     ## naive conformal prediction 
     _, in_sets = cpfit_naive.predict(cur_fs_test, cur_ys_test)
-    res["naive-nospl"] = {"eps": cpfit_naive.eps, "in_sets": in_sets.mean()}
+    res["cp-nospl"] = {"eps": cpfit_naive.eps, "in_sets": in_sets.mean()}
 
-    cp_cv = CPSemiTuneh(ys=cur_ys_train, 
-                        fs=cur_fs_train, 
-                        hfcts=config.can_hfcts, 
-                        kernel_fn=config.kernel_fn, 
-                        M=config.M, verbose=0)
-    hfct, _ = cp_cv.Boostrap(num_rep=100, 
-                             alpha=config.alpha, 
-                             n_jobs=1, 
-                             opt_params=config.opt_params)
     h = CPSemi.get_base_h(hfct, cpfit, eps_naive=cpfit_naive.eps, alpha=config.alpha)
-    cpfit.fit(alpha=config.alpha, h=h, opt_params=config.opt_params)
+    cpfit.fit(alpha=config.alpha, h=h, opt_params={})
     _, in_sets = cpfit.predict(cur_fs_test, cur_ys_test);
-    res["wvar"] = {"eps": cpfit.eps, "in_sets": in_sets.mean()}
+    res["cpsemi-nospl"] = {"eps": cpfit.eps, "in_sets": in_sets.mean()}
 
     # split data 
     tr_idxs = np.sort(npr.choice(ntrain, int(ntrain*config.split_ratio), replace=False))
@@ -170,16 +159,20 @@ def _run_fn(seed, ntrain):
                           verbose=config.verbose)
     cpfit2_naive.fit(alpha=config.alpha)
     _, in_sets = cpfit2_naive.predict(cur_fs_test_naive, cur_ys_test_naive)
-    res["naive"] = {"eps": cpfit2_naive.eps, "in_sets": in_sets.mean()}
+    res["cp-spl"] = {"eps": cpfit2_naive.eps, "in_sets": in_sets.mean()}
 
+    h2 = CPSemi.get_base_h(hfct, cpfit2, eps_naive=cpfit2_naive.eps, alpha=config.alpha)
+    cpfit2.fit(alpha=config.alpha, h=h2, opt_params={})
+    _, in_sets = cpfit2.predict(cur_fs_test, cur_ys_test);
+    res["cpsemi-spl"] = {"eps": cpfit2.eps, "in_sets": in_sets.mean()}
 
-    res["info"] = {"seed": seed, 
-                   "hfct": hfct, "h": h, 
-                   "ntrain": ntrain}
+    res["info"] = {"seed": seed, "hfct": hfct, "h": h, "ntrain": ntrain}
     del cpfit, cpfit2
     return res
 
 
+print(_run_fn(0, 100, 0.1))
+fafd
 
 n_jobs = args.n_jobs
 if args.ntrain < 0:
@@ -195,10 +188,11 @@ if not config.res_root.exists():
     config.res_root.mkdir(parents=True, exist_ok=True)
 
 save_pkl(config.res_root/"basic_config.pkl", config, is_force=True)
-for ntrain in tqdm(ntrains, desc="size"):
-    file_root = config.res_root/f"size-{num2str(ntrain)}.pkl"
-    if file_root.exists():
-        continue
-    with Parallel(n_jobs=n_jobs) as parallel:
-        ress = parallel(delayed(_run_fn)(seed, ntrain) for seed in range(config.nrep))
-    save_pkl(file_root, ress)
+for hfct in tqdm(can_hfcts, desc="h"):
+    for ntrain in tqdm(ntrains, desc="size"):
+        file_root = config.res_root/f"size-{num2str(ntrain)}_hfct-{num2str(hfct)}.pkl"
+        if file_root.exists():
+            continue
+        with Parallel(n_jobs=n_jobs) as parallel:
+            ress = parallel(delayed(_run_fn)(seed, ntrain, hfct) for seed in range(config.nrep))
+        save_pkl(file_root, ress)

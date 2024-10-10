@@ -67,7 +67,7 @@ class MyDataGen():
         return X
 
     @staticmethod
-    def _sin_YrawcX(X, A):
+    def sin_YrawcX(X, A):
         """ 
         Generate Y = sin(2pi|AX|)
         """
@@ -76,7 +76,7 @@ class MyDataGen():
         return Yraw
 
     @staticmethod
-    def sin_YrawcX(X, A):
+    def _sin_YrawcX(X, A):
         """ 
         Generate Y = A sin(2pi|X|)
         """

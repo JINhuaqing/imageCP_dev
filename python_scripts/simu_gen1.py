@@ -4,7 +4,7 @@
 
 # A10 indicates that I use A * 10 to generate the data
 # FixA indicates that I fix A for all the repetitions
-PREFIX = "LinearFixA"
+PREFIX = "ExpSqFixA"
 
 import sys
 from jin_utils import get_mypkg_path
@@ -16,7 +16,7 @@ from easydict import EasyDict as edict
 import numpy as np
 import numpy.random as npr
 from tqdm import tqdm
-from cp_predict import CPNaive, CPSimple1
+from cp_predict import CPNaive, CPSemi
 from utils.misc import save_pkl, num2str
 from joblib import Parallel, delayed
 from data_gen import MyDataGen
@@ -24,6 +24,8 @@ from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.svm import SVR
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import SplineTransformer, FunctionTransformer
+from sklearn.pipeline import make_pipeline
 
 
 import argparse
@@ -53,7 +55,7 @@ config.M = None
 config.noise_std = 0.5
 config.noise_type = args.noise_type
 config.X_type = args.X_type
-config.model_type = "linear"
+config.model_type = "expsq"
 if args.kernel_fn == "none":
     config.kernel_fn = None
 else: 
@@ -109,7 +111,7 @@ def _run_fn(seed, ntrain, hfct):
     cur_ys_test, cur_fs_test = Ytest, fmodel.predict(Xtest)
 
     ## my method
-    cpfit = CPSimple1(
+    cpfit = CPSemi(
         cur_ys_train, cur_fs_train,
                      kernel_fn=config.kernel_fn, 
                      M=config.M,
@@ -121,40 +123,40 @@ def _run_fn(seed, ntrain, hfct):
 
     ## naive conformal prediction 
     _, in_sets = cpfit_naive.predict(cur_fs_test, cur_ys_test)
-    res["naive-nospl"] = {"eps": cpfit_naive.eps, "in_sets": in_sets.mean()}
+    res["cp-nospl"] = {"eps": cpfit_naive.eps, "in_sets": in_sets.mean()}
 
-    h = CPSimple1.get_base_h(hfct, cpfit, eps_naive=cpfit_naive.eps, alpha=config.alpha)
-    cpfit.fit(alpha=config.alpha, h=h, opt_params={"bds": (0.01, 1000)})
+    h = CPSemi.get_base_h(hfct, cpfit, eps_naive=cpfit_naive.eps, alpha=config.alpha)
+    cpfit.fit(alpha=config.alpha, h=h, opt_params={})
     _, in_sets = cpfit.predict(cur_fs_test, cur_ys_test);
-    res["wvar"] = {"eps": cpfit.eps, "in_sets": in_sets.mean()}
+    res["cpsemi-nospl"] = {"eps": cpfit.eps, "in_sets": in_sets.mean()}
 
     # split data 
     tr_idxs = np.sort(npr.choice(ntrain, int(ntrain*config.split_ratio), replace=False))
-    Xtrain1, Ytrain1 = Xtrain[tr_idxs], Ytrain[tr_idxs]
-    Xtrain2, Ytrain2 = np.delete(Xtrain, tr_idxs, axis=0), np.delete(Ytrain, tr_idxs, axis=0)
+    Xtrain_spl1, Ytrain_spl1 = Xtrain[tr_idxs], Ytrain[tr_idxs]
+    Xtrain_spl2, Ytrain_spl2 = np.delete(Xtrain, tr_idxs, axis=0), np.delete(Ytrain, tr_idxs, axis=0)
     ## fit fmodel
-    fmodel1 = _get_model(typ=config.fmodel_type)
-    fmodel1.fit(Xtrain1, Ytrain1); 
-    cur_ys_train2, cur_fs_train2 = Ytrain2, fmodel1.predict(Xtrain2)
-    cur_ys_test_naive, cur_fs_test_naive = Ytest, fmodel1.predict(Xtest)
+    fmodel_spl = _get_model(typ=config.fmodel_type)
+    fmodel_spl.fit(Xtrain_spl1, Ytrain_spl1); 
+    cur_ys_train_spl, cur_fs_train_spl = Ytrain_spl2, fmodel_spl.predict(Xtrain_spl2)
+    cur_ys_test_spl, cur_fs_test_spl = Ytest, fmodel_spl.predict(Xtest)
 
-    cpfit2 = CPSimple1(
-        cur_ys_train2, cur_fs_train2,
+    cpfit2 = CPSemi(
+        cur_ys_train_spl, cur_fs_train_spl,
                      kernel_fn=config.kernel_fn, 
                      M=config.M,
                      verbose=config.verbose)
     ## naive conformal prediction
-    cpfit2_naive = CPNaive(cur_ys_train2, cur_fs_train2, 
+    cpfit2_naive = CPNaive(cur_ys_train_spl, cur_fs_train_spl, 
                           M=config.M,
                           verbose=config.verbose)
     cpfit2_naive.fit(alpha=config.alpha)
-    _, in_sets = cpfit2_naive.predict(cur_fs_test_naive, cur_ys_test_naive)
-    res["naive"] = {"eps": cpfit2_naive.eps, "in_sets": in_sets.mean()}
+    _, in_sets = cpfit2_naive.predict(cur_fs_test_spl, cur_ys_test_spl)
+    res["cp-spl"] = {"eps": cpfit2_naive.eps, "in_sets": in_sets.mean()}
 
-    h2 = CPSimple1.get_base_h(hfct, cpfit2, eps_naive=cpfit2_naive.eps, alpha=config.alpha)
-    cpfit2.fit(alpha=config.alpha, h=h2, opt_params={"bds": (0.01, 1000)})
-    _, in_sets = cpfit2.predict(cur_fs_test, cur_ys_test);
-    res["wvar-spl"] = {"eps": cpfit2.eps, "in_sets": in_sets.mean()}
+    h2 = CPSemi.get_base_h(hfct, cpfit2, eps_naive=cpfit2_naive.eps, alpha=config.alpha)
+    cpfit2.fit(alpha=config.alpha, h=h2, opt_params={})
+    _, in_sets = cpfit2.predict(cur_fs_test_spl, cur_ys_test_spl);
+    res["cpsemi-spl"] = {"eps": cpfit2.eps, "in_sets": in_sets.mean()}
 
     res["info"] = {"seed": seed, "hfct": hfct, "h": h, "ntrain": ntrain}
     del cpfit, cpfit2
